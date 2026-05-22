@@ -51,6 +51,17 @@ Generated DDL: [db/init/](db/init/).
    a **dark theme**. Design for desktop first (that's where the user works),
    then verify the layout adapts cleanly to a narrow viewport. Don't design
    mobile-first.
+8. **Auth via the existing Keycloak realm `CommSplice`** at
+   `https://auth.commsplice.com/`. Public OIDC client (`lmr-database`) with
+   PKCE; no client secret. Single realm shared with other CommSplice apps —
+   *not* split into employees/customers realms. Any authenticated user has
+   equal access (no role gating yet). Client config lives in
+   [keycloak/lmr-database-client.json](keycloak/lmr-database-client.json);
+   see [keycloak/README.md](keycloak/README.md) for the full story.
+9. **Local dev URL is `http://localhost:5173`**, reached from the
+   workstation via VSCode Remote port-forwarding. Dev servers bind to
+   localhost on the linux box (no LAN exposure). PKCE requires a secure
+   context, which `localhost` qualifies for; arbitrary LAN IPs do not.
 
 If the user proposes changing any of these, push back gently — the trade-offs
 were discussed and chosen deliberately.
@@ -116,6 +127,36 @@ Read these before suggesting any DB change.
 | betriebsart | operating mode |
 | uebertragungsart | transmission type |
 
+## Auth & Keycloak
+
+- **Realm:** `CommSplice` at `https://auth.commsplice.com/`. Issuer URL is
+  case-sensitive — `…/realms/CommSplice`, not lowercase.
+- **Client:** `lmr-database`. Public, PKCE-only, no secret. Definition lives
+  in [keycloak/lmr-database-client.json](keycloak/lmr-database-client.json)
+  and is the source of truth — edit the file, re-import in Keycloak.
+- **Trusted origins** (both in the client JSON):
+  - Production: `https://lmrdb.commsplice.com`
+  - Local dev:  `http://localhost:5173` (reached from the workstation via
+    VSCode Remote port-forwarding to the linux dev box)
+- **Redirect URIs are derived at runtime** from `window.location.origin` in
+  [apps/web/src/auth/oidcConfig.ts](apps/web/src/auth/oidcConfig.ts), so the
+  same SPA works on any registered origin without a rebuild.
+- **Secure-context restriction:** `crypto.subtle` (needed for PKCE) is only
+  exposed on HTTPS or `localhost`/loopback. Use `http://localhost:…` for
+  local dev; HTTP on a LAN IP will break login with "Crypto.subtle is
+  available only in secure contexts".
+- **Tokens:** access tokens carry `aud: lmr-database` (forced by an audience
+  mapper, since Keycloak doesn't add it automatically for public clients).
+  PostGraphile verifies against this audience.
+- **Identity → DB:** PostGraphile pushes `jwt.claims.sub` (and other claims)
+  into `pgSettings`; a trigger upserts `current.app_user` keyed by
+  `keycloak_sub` and stamps `created_by_id`/`updated_by_id`. **Never** set
+  those audit columns from the client.
+
+When extending: see "Adding a new environment" in
+[keycloak/README.md](keycloak/README.md). Don't fork the JSON per
+environment — one client trusts all origins.
+
 ## Frontend requirements
 
 - **Desktop-primary, mobile-works.** The user works on desktop; that's the
@@ -149,6 +190,7 @@ Read these before suggesting any DB change.
 | Postgres load orchestration | [tools/migration/load.py](tools/migration/load.py) |
 | GraphQL config | [apps/postgraphile/graphile.config.mjs](apps/postgraphile/graphile.config.mjs) |
 | Routes (frontend) | [apps/web/src/routes/](apps/web/src/routes/) — TanStack file-based routing |
+| Keycloak client (auth) | [keycloak/lmr-database-client.json](keycloak/lmr-database-client.json) — re-import into the `CommSplice` realm after edits |
 
 **Always:** after editing `config.py`, re-run `build_schema.py` → `extract.py` → `load.py --clean`. Or just `pnpm migrate:clean` from the repo root.
 
@@ -207,13 +249,23 @@ The Python `.venv` lives at [tools/migration/.venv](tools/migration/.venv). The 
 
 - **9-digit identifiers (`027 013 362`)** must stay as `text` even though they look numeric — the leading zero is significant. The `INT_RE` in [analyze.py](tools/migration/analyze.py) explicitly rejects leading-zero strings.
 
+- **`docker restart` doesn't rebuild the image** — and `apps/postgraphile/Dockerfile` `COPY`s `graphile.config.mjs` + `server.mjs` at build time. So changes to those files don't take effect on plain restart; you need `docker compose up -d --build postgraphile`. Solved permanently by bind-mounting both files in [docker-compose.yml](docker-compose.yml) (volumes block on the postgraphile service). After that, `docker restart` is enough for code changes; rebuild only needed for npm deps or Dockerfile edits.
+
+- **graphile-migrate `reset --erase` drops the entire database.** Not just the `current` schema, not just the `graphile_migrate` metadata — the whole DB, including `legacy`. If you genuinely want a clean current schema reset, use `DROP SCHEMA current CASCADE` via psql instead and re-run `pnpm migrate:current` (which will fall through to `gm watch --once` semantics).
+
+- **Unscoped behavior tokens are dangerous.** In `graphile.config.mjs`, never write `defaultBehavior: "-insert -update -delete"`. The bare `-insert` matches **both** `resource:insert` (kills the Create mutation) **and** `attribute:insert` (makes every Patch input type empty). Two distinct failure modes from one line. If you need to gate mutations, either omit `defaultBehavior` entirely (amber's per-plugin defaults already do the right thing for `current`) or use scoped tokens like `-resource:insert`. Locking down `legacy` is done via the `LegacyReadOnlyPlugin` in [apps/postgraphile/graphile.config.mjs](apps/postgraphile/graphile.config.mjs).
+
+- **Audit FK columns must end in `_id`.** Same gotcha as legacy FKs above — `current.signal.created_by` (uuid FK) would collide with the auto-inflected relation field `createdBy`. Always `created_by_id` / `updated_by_id` in the `current` schema. The audit trigger sets them, the column-level GRANT REVOKE keeps them off the inflected mutation input types.
+
 ---
 
 ## Don't do these things
 
-- Don't enable PostGraphile mutations on the `legacy` schema. It's read-only.
-  When the `current` schema is added, configure mutations only for it (smart
-  comments on the schema or per-table).
+- Don't enable mutations on the `legacy` schema. It's locked down by the
+  `LegacyReadOnlyPlugin` in [apps/postgraphile/graphile.config.mjs](apps/postgraphile/graphile.config.mjs) — a tiny custom plugin that adds
+  `-resource:insert/update/delete` to any `pgResource` whose codec lives in
+  `legacy`. Don't be tempted to use a schema-level `@behavior` smart comment
+  instead — unscoped tokens break Patch types (see Gotcha above).
 - Don't add FK constraints to tables that aren't in the export
   (`systemuser`, `team`, `businessunit`). They'll error.
 - Don't drop the `*name` denormalized label columns. They're snapshots of the
