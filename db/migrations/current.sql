@@ -1,0 +1,3 @@
+-- New migration. graphile-migrate applies this idempotently;
+-- writing it with CREATE OR REPLACE / DROP IF EXISTS makes it safe to
+-- replay during `gm watch`. Commit it with `pnpm migrate:current:commit`.
