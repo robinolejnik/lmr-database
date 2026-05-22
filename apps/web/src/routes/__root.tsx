@@ -25,6 +25,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { to: "/",             label: "Home",          end: true },
+  { to: "/map",          label: "Map" },
   { to: "/signals",      label: "Signals" },
   { to: "/receivers",    label: "Receivers" },
   { to: "/transmitters", label: "Transmitters" },

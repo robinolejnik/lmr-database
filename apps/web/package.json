@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mantine/core": "^9.2.1",
+    "@mantine/dates": "^9.2.1",
     "@mantine/form": "^9.2.1",
     "@mantine/hooks": "^9.2.1",
     "@mantine/notifications": "^9.2.1",
@@ -19,6 +20,8 @@
     "@tanstack/react-router": "^1.0.0",
     "@urql/core": "^5.0.0",
     "@urql/exchange-auth": "^3.0.0",
+    "dayjs": "^1.11.20",
+    "maplibre-gl": "^5.24.0",
     "oidc-client-ts": "^3.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
