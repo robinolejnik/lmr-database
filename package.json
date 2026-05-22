@@ -13,8 +13,15 @@
     "graphql:logs": "docker logs -f lmr-postgraphile",
     "stack:up": "docker compose up -d --build",
     "stack:down": "docker compose down",
-    "migrate": "cd tools/migration && .venv/bin/python run.py",
-    "migrate:clean": "cd tools/migration && .venv/bin/python run.py --clean"
+    "migrate:legacy": "cd tools/migration && .venv/bin/python run.py",
+    "migrate:legacy:clean": "cd tools/migration && .venv/bin/python run.py --clean",
+    "migrate:current": "graphile-migrate migrate",
+    "migrate:current:watch": "graphile-migrate watch",
+    "migrate:current:commit": "graphile-migrate commit",
+    "migrate:current:reset": "graphile-migrate reset --erase"
   },
-  "packageManager": "pnpm@11.2.2"
+  "packageManager": "pnpm@11.2.2",
+  "devDependencies": {
+    "graphile-migrate": "^1.4.1"
+  }
 }
