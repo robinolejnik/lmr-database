@@ -7,7 +7,12 @@ export default defineConfig({
     TanStackRouterVite({ target: "react", autoCodeSplitting: true }),
     react(),
   ],
+  // Single .env at the repo root (next to docker-compose). All VITE_-prefixed
+  // vars defined there are available via `import.meta.env`.
+  envDir: "../..",
   server: {
+    // Default localhost binding — VSCode Remote auto-forwards localhost:5173
+    // from the linux box to the windows side. No LAN exposure needed.
     port: 5173,
     proxy: {
       // route GraphQL through Vite during dev so the browser doesn't see CORS
