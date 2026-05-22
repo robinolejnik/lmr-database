@@ -68,7 +68,7 @@ def build_fks(plan, schema: str) -> list[str]:
             f"ON DELETE NO ACTION ON UPDATE NO ACTION;"
         )
         out.append(
-            f"CREATE INDEX {plan.pg_table}_{col}_idx "
+            f"CREATE INDEX IF NOT EXISTS {plan.pg_table}_{col}_idx "
             f"ON {schema}.{quote_ident(plan.pg_table)} ({quote_ident(col)});"
         )
     return out
@@ -80,9 +80,44 @@ def build_geo(plan, schema: str) -> str | None:
         return None
     out_col = plan.geo["out_col"]
     return (
-        f"CREATE INDEX {plan.pg_table}_{out_col}_gix "
+        f"CREATE INDEX IF NOT EXISTS {plan.pg_table}_{out_col}_gix "
         f"ON {schema}.{quote_ident(plan.pg_table)} USING GIST ({quote_ident(out_col)});"
     )
+
+
+def build_hz_indexes(plan, schema: str) -> list[str]:
+    """One btree index per synthesized `<x>_hz` column.
+
+    PostGraphile's connection-filter only exposes a column in `<Type>Filter`
+    when there's a backing index; without these the frequency-range filter
+    on the map breaks (silently, with a GraphQL "Field not defined" error).
+    """
+    out = []
+    for spec in plan.hz:
+        out_col = spec["out_col"]
+        out.append(
+            f"CREATE INDEX IF NOT EXISTS {plan.pg_table}_{out_col}_idx "
+            f"ON {schema}.{quote_ident(plan.pg_table)} ({quote_ident(out_col)});"
+        )
+    return out
+
+
+def build_filter_indexes(schema: str) -> list[str]:
+    """Btree indexes on legacy columns the frontend needs to filter on.
+
+    Same gating principle as `build_hz_indexes`: connection-filter only
+    exposes a column when there's an index. Driven by
+    `cfg.LEGACY_FILTER_INDEXES`. Idempotent so a re-import or a partial
+    re-apply doesn't fail.
+    """
+    out = []
+    for table, columns in cfg.LEGACY_FILTER_INDEXES.items():
+        for col in columns:
+            out.append(
+                f"CREATE INDEX IF NOT EXISTS {table}_{col}_idx "
+                f"ON {schema}.{quote_ident(table)} ({quote_ident(col)});"
+            )
+    return out
 
 
 def main():
@@ -148,6 +183,19 @@ def main():
         if geo:
             constraints_sql_parts.append(geo)
 
+    # Unit-normalized hz indexes (lets PostGraphile expose them in filters)
+    constraints_sql_parts.append("")
+    constraints_sql_parts.append("-- ===== hz indexes =====")
+    for plan in plans:
+        for line in build_hz_indexes(plan, cfg.PG_SCHEMA):
+            constraints_sql_parts.append(line)
+
+    # Additional filter-exposure indexes on legacy columns the frontend uses.
+    constraints_sql_parts.append("")
+    constraints_sql_parts.append("-- ===== filter-exposure indexes =====")
+    for line in build_filter_indexes(cfg.PG_SCHEMA):
+        constraints_sql_parts.append(line)
+
     # Smart comments — control PostGraphile's GraphQL projection.
     # Hide the geography column (frontends use lat/lon numerics).
     constraints_sql_parts.append("")
@@ -188,6 +236,7 @@ def main():
             "pk": plan.pk,
             "fks": plan.fks,
             "geo": plan.geo,
+            "hz": plan.hz,
         })
     (HERE / "plans.json").write_text(json.dumps(plans_dump, indent=2))
     print(f"wrote {HERE / 'plans.json'}")

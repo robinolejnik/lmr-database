@@ -175,6 +175,7 @@ class TablePlan:
     pk: list[str] = field(default_factory=list)  # one or more pg column names
     fks: list[tuple[str, str]] = field(default_factory=list)  # (pg_col, target_table)
     geo: dict | None = None    # if present: {'out_col', 'lat_idx', 'lon_idx'}
+    hz: list[dict] = field(default_factory=list)  # synthesized normalized-Hz cols; each: {'value_idx', 'unit_idx', 'out_col'}
     drop_log: list[str] = field(default_factory=list)  # for inspection: which columns were dropped + why
     rename_log: list[tuple[str, str, str]] = field(default_factory=list)  # (old, new, reason)
 
@@ -367,7 +368,32 @@ def plan_table(report_table: dict, table_name: str) -> TablePlan:
             pg_type="geography(Point,4326)",
         ))
 
-    # ---- step 3: FK list --------------------------------------------------
+    # ---- step 3: hz unit-normalization ------------------------------------
+    # For each entry, synthesize one numeric `<out>_hz` column. We capture
+    # the indexes into the *source* row so extract.py can read the magnitude
+    # and the unit-label cell directly without re-parsing the plan.
+    hz_specs: list[dict] = []
+    for spec in cfg.HZ_NORMALIZE.get(table_name, []):
+        try:
+            value_idx = next(i for i, cc in enumerate(columns_report) if cc["name"] == spec["value_col"])
+            unit_idx  = next(i for i, cc in enumerate(columns_report) if cc["name"] == spec["unit_col"])
+        except StopIteration:
+            # Source columns missing (older export?) — skip silently rather than
+            # breaking the import.
+            continue
+        hz_specs.append({
+            "value_idx": value_idx,
+            "unit_idx":  unit_idx,
+            "out_col":   spec["out_col"],
+        })
+        plan_cols.append(Col(
+            source_idx=-5,
+            source_name=f"<hz:{spec['value_col']}>",
+            pg_name=spec["out_col"],
+            pg_type="numeric",
+        ))
+
+    # ---- step 4: FK list --------------------------------------------------
     fks: list[tuple[str, str]] = []
     for col in plan_cols:
         if col.is_fk and col.fk_target:
@@ -380,6 +406,7 @@ def plan_table(report_table: dict, table_name: str) -> TablePlan:
         pk=pk_cols,
         fks=fks,
         geo=geo,
+        hz=hz_specs,
         drop_log=drop_log,
         rename_log=rename_log,
     )

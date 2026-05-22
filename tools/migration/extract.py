@@ -13,10 +13,41 @@ import uuid
 from datetime import datetime, date, timezone
 from pathlib import Path
 
+from decimal import Decimal, InvalidOperation
+
 from python_calamine import CalamineWorkbook
 
 import config as cfg
 from transform import dms_to_decimal, TYPE_TO_CLEANER
+
+
+def to_hz(value, unit_label) -> str | None:
+    """Convert (numeric_value, unit_label) → string of Decimal Hz, or None.
+
+    Unit labels seen in the dataset are 'MHz' / 'GHz' but we tolerate the
+    common siblings (Hz/kHz/THz) and ignore casing/whitespace. Unknown units
+    yield None — the cell stays NULL rather than mis-recording a value at
+    the wrong scale.
+    """
+    if value is None or value == "" or unit_label is None:
+        return None
+    label = str(unit_label).strip()
+    if not label:
+        return None
+    multiplier = cfg.UNIT_MULTIPLIERS.get(label)
+    if multiplier is None:
+        return None
+    try:
+        if isinstance(value, (int, float, Decimal)):
+            d = Decimal(str(value))
+        else:
+            s = str(value).strip().replace(",", ".")
+            if not s:
+                return None
+            d = Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
+    return str(d * Decimal(multiplier))
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
@@ -43,6 +74,9 @@ def write_table(book, plan, csv_dir: Path):
     # Pre-resolve cleaners
     cols = plan["columns"]
     geo = plan.get("geo")
+    hz_specs = plan.get("hz") or []
+    # Map by out_col so we can look up the source indexes from the column.
+    hz_by_out = {spec["out_col"]: spec for spec in hz_specs}
 
     row_iter = sheet.iter_rows()
     try:
@@ -67,6 +101,15 @@ def write_table(book, plan, csv_dir: Path):
                 elif src_idx == -2:
                     # geo — synthesized below
                     val = ""
+                elif src_idx == -5:
+                    # hz unit-normalization — synthesized inline
+                    spec = hz_by_out.get(col["pg_name"])
+                    if spec is None:
+                        val = None
+                    else:
+                        v = row[spec["value_idx"]] if spec["value_idx"] < len(row) else None
+                        u = row[spec["unit_idx"]]  if spec["unit_idx"]  < len(row) else None
+                        val = to_hz(v, u)
                 else:
                     raw = row[src_idx] if src_idx < len(row) else None
                     cleaner = TYPE_TO_CLEANER.get(col["pg_type"], TYPE_TO_CLEANER["text"])

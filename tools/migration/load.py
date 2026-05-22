@@ -103,6 +103,10 @@ def main():
         if not (args.schema_only or args.copy_only):
             print("\n== constraints ==")
             run_sql_file(conn, INIT / "02_constraints.sql")
+            # Idempotent: grants for app_* roles (created by graphile-migrate)
+            # so the legacy schema is queryable after every clean re-import.
+            print("\n== legacy grants ==")
+            run_sql_file(conn, INIT / "03_legacy_grants.sql")
 
 
 if __name__ == "__main__":

@@ -239,6 +239,48 @@ STRIP_SPACES_IN_VALUES: set[str] = {
     "dokument.bnetza_zuteilungname",
 }
 
+# Unit-normalized columns: each entry synthesizes one new `<out>_hz` numeric
+# column from a (value, unit-label) pair already present in the source row.
+# Lets filters compare frequencies on a single canonical scale instead of
+# mixing 450.6 MHz with 1.2 GHz as if they were the same number. Mirrors the
+# GEO_COMBINE pattern: declared here, planned in transform.py, written in
+# extract.py, indexed in build_schema.py.
+HZ_NORMALIZE: dict[str, list[dict]] = {
+    "frequenz": [
+        {"value_col": "bnetza_frequenz1", "unit_col": "bnetza_frequenz1einheitname", "out_col": "frequenz1_hz"},
+        {"value_col": "bnetza_frequenz2", "unit_col": "bnetza_frequenz2einheitname", "out_col": "frequenz2_hz"},
+    ],
+    "frequenzvorlage": [
+        {"value_col": "bnetza_frequenz1", "unit_col": "bnetza_frequenz1einheitname", "out_col": "frequenz1_hz"},
+        {"value_col": "bnetza_frequenz2", "unit_col": "bnetza_frequenz2einheitname", "out_col": "frequenz2_hz"},
+    ],
+}
+
+# Map unit-label text → multiplier to Hz. Tolerant of casing/whitespace.
+# Distinct unit labels seen on legacy.frequenz are 'MHz' and 'GHz' only.
+UNIT_MULTIPLIERS: dict[str, int] = {
+    "Hz":  1,
+    "kHz": 1_000,
+    "MHz": 1_000_000,
+    "GHz": 1_000_000_000,
+    "THz": 1_000_000_000_000,
+}
+
+# Extra btree indexes on legacy tables for PostGraphile filter exposure.
+# `postgraphile-plugin-connection-filter` only surfaces a column in
+# `<Type>Filter` when there's a backing index — without these the map's
+# bbox / state / segment filters return "Field not defined" errors. Each
+# index gets the suffix `_idx`; emitted from build_schema.py with
+# CREATE INDEX IF NOT EXISTS so a clean re-import restores them.
+LEGACY_FILTER_INDEXES: dict[str, list[str]] = {
+    "antenne":   ["lat", "lon"],
+    "zuteilung": ["dienstsegmentname", "statecodename", "befristung"],
+    # frequenz1/2 are the un-normalized columns; the hz versions are auto-
+    # indexed from HZ_NORMALIZE. Keeping the raw indexes is cheap and helps
+    # any future un-normalized query path.
+    "frequenz":  ["frequenz1", "frequenz2"],
+}
+
 # Geographic columns: synthesized from deg/min/sec triples.
 # Produces three columns: `lat` numeric, `lon` numeric, `location` geography.
 # The numeric columns are also exposed via GraphQL so frontends can map points
