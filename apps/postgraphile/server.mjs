@@ -49,10 +49,8 @@ async function jwtMiddleware(req, _res, next) {
       });
       req.auth = payload;
     } catch (err) {
-      // Token rejected — log once at debug level. Treat as anonymous.
-      if (process.env.NODE_ENV !== "production") {
-        console.warn(`[jwt] rejected: ${err.code ?? err.message}`);
-      }
+      // Always log — these failures are hard to diagnose otherwise.
+      console.warn(`[jwt] rejected: ${err.code ?? err.message}`);
     }
   }
   next();
@@ -65,11 +63,13 @@ const pgl = postgraphile(preset);
 const serv = pgl.createServ(grafserv);
 await serv.addTo(app);
 
-// Inside the container we must bind to 0.0.0.0 so docker's port mapping
-// can reach us; the docker-compose `ports:` directive controls what host
-// interface ends up exposed (currently 127.0.0.1 only — see docker-compose.yml).
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`PostGraphile listening on container 0.0.0.0:${PORT}`);
+// Bind to localhost only. The container runs with `network_mode: host` (see
+// docker-compose.yml) so this is the host's 127.0.0.1; VSCode Remote forwards
+// it to the workstation. Host networking is necessary because Keycloak is
+// only reachable via IPv6 on this network, and docker's default bridge has
+// no IPv6 — see CLAUDE.md gotcha.
+app.listen(PORT, "127.0.0.1", () => {
+  console.log(`PostGraphile listening on 127.0.0.1:${PORT}`);
   console.log(`  GraphQL:  http://localhost:${PORT}/graphql`);
   console.log(`  GraphiQL: http://localhost:${PORT}/graphiql`);
   console.log(`  Keycloak issuer:   ${KEYCLOAK_ISSUER}`);
