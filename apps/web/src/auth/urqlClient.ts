@@ -30,23 +30,23 @@ export function createUrqlClient(): Client {
     exchanges: [
       cacheExchange,
       authExchange(async (utils) => {
-        let token = loadAccessToken();
         return {
           addAuthToOperation(operation) {
+            // Read the token freshly on every request, not at init: the urql
+            // client is created at app startup before the user has logged
+            // in, so caching the token in a closure leaves it stuck at null.
+            const token = loadAccessToken();
             if (!token) return operation;
             return utils.appendHeaders(operation, {
               Authorization: `Bearer ${token}`,
             });
           },
           didAuthError(error) {
-            // 401 from the GraphQL server (e.g. JWT expired mid-request).
             return error.response?.status === 401;
           },
           async refreshAuth() {
-            // React/oidc-client-ts handles silent renew in the background.
-            // We just re-read the stored token; if it's still bad, the next
-            // request will surface the error and the user can re-login.
-            token = loadAccessToken();
+            // oidc-client-ts handles silent renew in the background; the
+            // next call to addAuthToOperation will pick up the new token.
           },
         };
       }),
