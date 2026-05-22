@@ -28,9 +28,6 @@ services:
       timeout: 5s
       retries: 30
 
-  # PostGraphile v4 (the production-recommended stable line). The PostGraphile
-  # v5 ecosystem requires a graphile.config.mjs file and is still maturing; once
-  # that's appealing, replace this service per the README.
   postgraphile:
     build: ./apps/postgraphile
     container_name: lmr-postgraphile
@@ -38,10 +35,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Bind to localhost only — VSCode Remote auto-forwards the port from the
+    # linux dev box to the developer's workstation. No LAN exposure.
     ports:
       - "127.0.0.1:${PGRAPHILE_PORT:-5050}:5050"
     environment:
       DATABASE_URL: postgres://${PG_USER:-lmr}:${PG_PASSWORD:-lmr}@postgres:5432/${PG_DB:-lmr}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE}
+    # Mount the config + server entry as volumes so edits are picked up on
+    # `docker restart lmr-postgraphile` — no rebuild needed for code changes.
+    # node_modules stays inside the image.
+    volumes:
+      - ./apps/postgraphile/graphile.config.mjs:/app/graphile.config.mjs:ro
+      - ./apps/postgraphile/server.mjs:/app/server.mjs:ro
 
 volumes:
   pgdata:
