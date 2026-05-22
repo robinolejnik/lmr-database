@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgis/postgis:17-3.5-alpine
+    container_name: lmr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB:-lmr}
+      POSTGRES_USER: ${PG_USER:-lmr}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-lmr}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - effective_cache_size=2GB
+    ports:
+      - "127.0.0.1:${PG_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-lmr} -d ${PG_DB:-lmr}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # PostGraphile v4 (the production-recommended stable line). The PostGraphile
+  # v5 ecosystem requires a graphile.config.mjs file and is still maturing; once
+  # that's appealing, replace this service per the README.
+  postgraphile:
+    build: ./apps/postgraphile
+    container_name: lmr-postgraphile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PGRAPHILE_PORT:-5050}:5050"
+    environment:
+      DATABASE_URL: postgres://${PG_USER:-lmr}:${PG_PASSWORD:-lmr}@postgres:5432/${PG_DB:-lmr}
+
+volumes:
+  pgdata:
+    name: lmr-pgdata

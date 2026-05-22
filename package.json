@@ -1,0 +1,20 @@
+{
+  "name": "lmr-database",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Radio frequency database — signals, observations, transmitters, direction finding (Postgres + PostGraphile + React).",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm -r build",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:psql": "docker exec -it lmr-postgres psql -U lmr -d lmr",
+    "graphql:up": "docker compose up -d --build postgraphile",
+    "graphql:logs": "docker logs -f lmr-postgraphile",
+    "stack:up": "docker compose up -d --build",
+    "stack:down": "docker compose down",
+    "migrate": "cd tools/migration && .venv/bin/python run.py",
+    "migrate:clean": "cd tools/migration && .venv/bin/python run.py --clean"
+  },
+  "packageManager": "pnpm@11.2.2"
+}
