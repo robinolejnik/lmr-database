@@ -61,3 +61,7 @@ Thumbs.db
 # ---- docker ---------------------------------------------------------------
 # Named volumes live outside the repo; nothing to ignore here, but if you
 # ever bind-mount postgres data into the tree, add it here.
+
+# ---- claude code ----------------------------------------------------------
+# Per-developer Claude Code settings (permissions etc.)
+.claude/
