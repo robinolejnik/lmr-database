@@ -257,6 +257,12 @@ The Python `.venv` lives at [tools/migration/.venv](tools/migration/.venv). The 
 
 - **Audit FK columns must end in `_id`.** Same gotcha as legacy FKs above — `current.signal.created_by` (uuid FK) would collide with the auto-inflected relation field `createdBy`. Always `created_by_id` / `updated_by_id` in the `current` schema. The audit trigger sets them, the column-level GRANT REVOKE keeps them off the inflected mutation input types.
 
+- **`postgraphile` runs with `network_mode: host`** because `auth.commsplice.com` is only routable via IPv6 on this network and docker's default bridge has no IPv6. Symptom if you ever undo this: `[jwt] rejected: ECONNREFUSED` in postgraphile logs whenever a real bearer token comes in. Side-effects of host networking: no `ports:` mapping (the container shares the host's network), `DATABASE_URL` uses `127.0.0.1:5432` (not the bridge alias `postgres:5432`), and `server.mjs` binds to `127.0.0.1` directly. `lmr-postgres` stays on the default bridge — that's fine, the host can reach it via the loopback mapping it publishes.
+
+- **`orderBy` enums only include indexed columns.** PostGraphile v5's `PgIndexBehaviorsPlugin` enables `attribute:orderBy` only for columns that have a backing index (PK, unique constraint, or any btree/gin index). So `currentReceiver`'s `NAME_ASC` works (trigram GIN index on `name`) but `legacy.antenne` has no index on `name`, hence no `NAME_ASC` in `AntenneOrderBy`. Add an index in the migration if you need a column sortable from GraphQL; otherwise use `NATURAL` (default Postgres order) or sort client-side.
+
+- **Keycloak 25+ moved the `sub` claim from `openid` to a separate `basic` scope.** If `basic` isn't in the client's default client scopes, access tokens come out with `email`, `preferred_username`, etc. but **no `sub`** — and our `pgSettings` fallback then keys `app_user` by email instead of the canonical subject. [keycloak/lmr-database-client.json](keycloak/lmr-database-client.json) lists `basic` in `defaultClientScopes`; if you re-import or hand-edit, keep it there. Symptom if missing: every authenticated request hits `app_anonymous` (and "permission denied for schema current") even though the JWT verified fine.
+
 ---
 
 ## Don't do these things
