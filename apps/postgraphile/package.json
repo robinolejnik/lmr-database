@@ -1,0 +1,11 @@
+{
+  "name": "postgraphile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PostGraphile v5 service exposing the lmr database over GraphQL.",
+  "scripts": {
+    "build": "docker build -t lmr-postgraphile .",
+    "up": "docker compose -f ../../docker-compose.yml up -d --build postgraphile",
+    "logs": "docker logs -f lmr-postgraphile"
+  }
+}
